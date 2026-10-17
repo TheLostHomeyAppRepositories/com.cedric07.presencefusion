@@ -325,12 +325,14 @@ module.exports = class PresenceFusionApp extends Homey.App {
     }
 
     const list = await this._getDevicesCached();
+    const zoneNames = await this._getZoneNamesCached();
     const items = list
       .filter((d) => {
         if (!d || !d.id) return false;
-        const uri = String(d.driverUri || '');
-        if (uri.includes('com.cedric07.presencefusion')) return false;
-        const hay = `${d.name || ''} ${d.zoneName || ''} ${d.driverId || ''} ${uri}`.toLowerCase();
+        const driverId = String(d.driverId || '');
+        if (driverId.includes('com.cedric07.presencefusion')) return false;
+        const zoneName = zoneNames[d.zone] || '';
+        const hay = `${d.name || ''} ${zoneName} ${driverId}`.toLowerCase();
         return hay.includes(q);
       })
       .map((d) => {
@@ -340,7 +342,7 @@ module.exports = class PresenceFusionApp extends Homey.App {
         return {
           id: d.id,
           name: d.name || d.id,
-          zoneName: d.zoneName || '',
+          zoneName: zoneNames[d.zone] || '',
           capability: suggested,
           score: presenceLikenessScore(d),
         };
@@ -470,6 +472,30 @@ module.exports = class PresenceFusionApp extends Homey.App {
     this._devicesCache = list;
     this._devicesCacheAt = Date.now();
     return list;
+  }
+
+  /**
+   * Map zone id → name without touching deprecated Device.zoneName.
+   * @returns {Promise<Record<string, string>>}
+   */
+  async _getZoneNamesCached() {
+    const TTL_MS = 60 * 1000;
+    if (this._zoneNamesCache && (Date.now() - this._zoneNamesCacheAt) < TTL_MS) {
+      return this._zoneNamesCache;
+    }
+    const map = {};
+    try {
+      const raw = await this._api.zones.getZones();
+      const zones = Array.isArray(raw) ? raw : Object.values(raw || {});
+      for (const z of zones) {
+        if (z && z.id) map[z.id] = z.name || '';
+      }
+    } catch (err) {
+      this.error('zones.getZones failed', err);
+    }
+    this._zoneNamesCache = map;
+    this._zoneNamesCacheAt = Date.now();
+    return map;
   }
 
 };
